@@ -6,23 +6,28 @@ vars:
 
 tasks:
   install-edgetpu:
-    desc: Download and install the Coral EdgeTPU runtime (requires sudo)
+    desc: Download and install the Coral EdgeTPU runtime as x86_64 via Rosetta (requires sudo)
     cmds:
       - |
         EDGETPU_LIB="/usr/local/lib/libedgetpu.1.dylib"
-        if [ -f "$EDGETPU_LIB" ]; then
-          echo "libedgetpu already installed at $EDGETPU_LIB"
+        ARCH=$(file "$EDGETPU_LIB" 2>/dev/null | grep -o 'x86_64\|arm64' | head -1)
+        if [ "$ARCH" = "x86_64" ]; then
+          echo "libedgetpu already installed as x86_64 at $EDGETPU_LIB"
           exit 0
+        fi
+        if [ -f "$EDGETPU_LIB" ]; then
+          echo "Found $ARCH libedgetpu — removing to reinstall as x86_64..."
+          sudo rm "$EDGETPU_LIB"
         fi
         echo "Downloading Coral EdgeTPU runtime..."
         TMP=$(mktemp -d)
         curl -L -o "$TMP/edgetpu_runtime.zip" "{{.EDGETPU_RUNTIME_URL}}"
         unzip -q "$TMP/edgetpu_runtime.zip" -d "$TMP"
-        echo "Running installer (sudo required)..."
-        sudo bash "$TMP/edgetpu_runtime/install.sh"
+        echo "Running installer under Rosetta (sudo required)..."
+        arch -x86_64 sudo bash "$TMP/edgetpu_runtime/install.sh"
         rm -rf "$TMP"
-        echo "Done. Verifying..."
-        ls "$EDGETPU_LIB"
+        echo "Done. Verifying architecture..."
+        file "$EDGETPU_LIB"
 
   install:
     desc: Install uv (if missing), check libedgetpu, set up Python 3.9 venv and dependencies
@@ -77,7 +82,7 @@ tasks:
     env:
       DYLD_LIBRARY_PATH: /usr/local/lib
     cmds:
-      - "{{.PYTHON}} src/classify.py"
+      - "arch -x86_64 {{.PYTHON}} src/classify.py"
 
   detect:
     desc: Object detection (not yet implemented)
