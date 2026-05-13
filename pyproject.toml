@@ -1,0 +1,16 @@
+[project]
+name = "coral-accelerator"
+version = "0.1.0"
+requires-python = "==3.9.*"
+dependencies = [
+    "pycoral~=2.0",
+    "tflite-runtime",
+    "opencv-python",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.uv]
+extra-index-url = ["https://google-coral.github.io/py-repo/"]

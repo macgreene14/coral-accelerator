@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+models/*.tflite
+models/*.txt
+uv.lock
