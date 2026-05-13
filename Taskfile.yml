@@ -74,6 +74,8 @@ tasks:
 
   classify:
     desc: Run image classification using the laptop camera and Coral USB Accelerator
+    env:
+      DYLD_LIBRARY_PATH: /usr/local/lib
     cmds:
       - "{{.PYTHON}} src/classify.py"
 
