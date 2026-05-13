@@ -1,0 +1,68 @@
+version: '3'
+
+vars:
+  PYTHON: .venv/bin/python
+
+tasks:
+  install:
+    desc: Install uv (if missing), check libedgetpu, set up Python 3.9 venv and dependencies
+    cmds:
+      - |
+        if ! command -v uv &>/dev/null; then
+          if [ ! -f "$HOME/.local/bin/uv" ]; then
+            echo "Installing uv..."
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+          fi
+          export PATH="$HOME/.local/bin:$PATH"
+        fi
+        UV=$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")
+        EDGETPU_LIB="/usr/local/lib/libedgetpu.1.dylib"
+        if [ ! -f "$EDGETPU_LIB" ]; then
+          echo ""
+          echo "ERROR: libedgetpu not found at $EDGETPU_LIB"
+          echo ""
+          echo "Install the Coral EdgeTPU runtime:"
+          echo "  https://coral.ai/docs/accelerator/get-started/#1-install-the-edge-tpu-runtime"
+          echo ""
+          echo "After installing, re-run: task install"
+          exit 1
+        fi
+        echo "libedgetpu found at $EDGETPU_LIB"
+        $UV venv --python 3.9
+        $UV sync --extra dev
+
+  download-models:
+    desc: Download MobileNet v2 EdgeTPU model and ImageNet labels into models/
+    cmds:
+      - mkdir -p models
+      - |
+        if [ ! -f "models/mobilenet_v2_1.0_224_quant_edgetpu.tflite" ]; then
+          echo "Downloading MobileNet v2 EdgeTPU model..."
+          curl -L -o models/mobilenet_v2_1.0_224_quant_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/mobilenet_v2_1.0_224_quant_edgetpu.tflite"
+        else
+          echo "Model already present: models/mobilenet_v2_1.0_224_quant_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/imagenet_labels.txt" ]; then
+          echo "Downloading ImageNet labels..."
+          curl -L -o models/imagenet_labels.txt \
+            "https://raw.githubusercontent.com/google-coral/test_data/master/imagenet_labels.txt"
+        else
+          echo "Labels already present: models/imagenet_labels.txt"
+        fi
+
+  classify:
+    desc: Run image classification using the laptop camera and Coral USB Accelerator
+    cmds:
+      - "{{.PYTHON}} src/classify.py"
+
+  detect:
+    desc: Object detection (not yet implemented)
+    cmds:
+      - echo "Detection not yet implemented — run 'task classify' instead"
+
+  test:
+    desc: Run unit tests (no EdgeTPU or camera required)
+    cmds:
+      - "{{.PYTHON}} -m pytest tests/ -v"
