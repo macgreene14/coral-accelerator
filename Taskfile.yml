@@ -2,7 +2,7 @@ version: '3'
 
 vars:
   PYTHON: .venv/bin/python
-  EDGETPU_RUNTIME_URL: https://dl.google.com/coral/edgetpu_api/edgetpu_runtime_20221024.zip
+  EDGETPU_RUNTIME_URL: https://github.com/google-coral/libedgetpu/releases/download/release-grouper/edgetpu_runtime_20221024.zip
 
 tasks:
   install-edgetpu:
