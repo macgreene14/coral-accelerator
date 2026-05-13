@@ -2,8 +2,28 @@ version: '3'
 
 vars:
   PYTHON: .venv/bin/python
+  EDGETPU_RUNTIME_URL: https://dl.google.com/coral/edgetpu_api/edgetpu_runtime_20221024.zip
 
 tasks:
+  install-edgetpu:
+    desc: Download and install the Coral EdgeTPU runtime (requires sudo)
+    cmds:
+      - |
+        EDGETPU_LIB="/usr/local/lib/libedgetpu.1.dylib"
+        if [ -f "$EDGETPU_LIB" ]; then
+          echo "libedgetpu already installed at $EDGETPU_LIB"
+          exit 0
+        fi
+        echo "Downloading Coral EdgeTPU runtime..."
+        TMP=$(mktemp -d)
+        curl -L -o "$TMP/edgetpu_runtime.zip" "{{.EDGETPU_RUNTIME_URL}}"
+        unzip -q "$TMP/edgetpu_runtime.zip" -d "$TMP"
+        echo "Running installer (sudo required)..."
+        sudo bash "$TMP/edgetpu_runtime/install.sh"
+        rm -rf "$TMP"
+        echo "Done. Verifying..."
+        ls "$EDGETPU_LIB"
+
   install:
     desc: Install uv (if missing), check libedgetpu, set up Python 3.9 venv and dependencies
     cmds:
