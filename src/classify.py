@@ -42,7 +42,7 @@ def get_top_k(scores: np.ndarray, labels: list, k: int = 3) -> list:
 
 # BGR color constants for confidence bars
 _BAR_GREEN = (0, 200, 0)
-_BAR_YELLOW = (0, 200, 200)
+_BAR_YELLOW = (0, 255, 255)
 _BAR_RED = (0, 0, 200)
 
 
@@ -103,13 +103,12 @@ def main():
 
     # pycoral imports are deferred here so the helpers above stay testable
     # without libedgetpu installed on the host.
-    from pycoral.adapters import classify as coral_classify
-    from pycoral.adapters import common
     import pycoral.utils.edgetpu as _edgetpu_mod
     # Under Rosetta on Apple Silicon, ctypes bare-name dlopen does not search
-    # /usr/local/lib, so the default 'libedgetpu.1.dylib' fails. Override with
-    # the absolute path so tflite_runtime's load_delegate finds the library.
+    # /usr/local/lib. Override with absolute path so load_delegate finds the lib.
     _edgetpu_mod._EDGETPU_SHARED_LIB = "/usr/local/lib/libedgetpu.1.dylib"
+    from pycoral.adapters import classify as coral_classify
+    from pycoral.adapters import common
     from pycoral.utils.edgetpu import make_interpreter
 
     print("Loading model on EdgeTPU...")
