@@ -155,6 +155,7 @@ def main():
                 annotated = draw_classification_overlay(frame, top)
                 cv2.imshow("Classify", annotated)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
+                    print("\nStopped.")
                     break
 
     except KeyboardInterrupt:

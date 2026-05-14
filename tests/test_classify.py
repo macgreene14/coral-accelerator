@@ -111,3 +111,19 @@ class TestFindCoralUsb:
     def test_returns_false_on_subprocess_exception(self):
         with patch("classify.subprocess.run", side_effect=Exception("timeout")):
             assert find_coral_usb() is False
+
+
+class TestArgParser:
+    def test_display_flag_defaults_to_false(self):
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--display", action="store_true")
+        args = parser.parse_args([])
+        assert args.display is False
+
+    def test_display_flag_set_when_passed(self):
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--display", action="store_true")
+        args = parser.parse_args(["--display"])
+        assert args.display is True
