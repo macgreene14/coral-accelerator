@@ -49,6 +49,10 @@ tasks:
           echo "ERROR: pv_detector_edgetpu.tflite not found. Run task training:export first."
           exit 1
         fi
+        if [ ! -f "models/pv_labels.txt" ]; then
+          echo "ERROR: pv_labels.txt not found. Run task training:export first."
+          exit 1
+        fi
         cp models/pv_detector_edgetpu.tflite ../models/
         cp models/pv_labels.txt ../models/
         echo "Deployed pv_detector_edgetpu.tflite and pv_labels.txt to models/"

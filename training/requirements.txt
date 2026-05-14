@@ -1,3 +1,11 @@
+# PV Training Pipeline Dependencies
+#
+# IMPORTANT: Do NOT run `pip install -r requirements.txt` directly.
+# The Model Maker / TensorFlow install order matters:
+#   1. tensorflow-macos + tensorflow-metal must be installed FIRST
+#   2. tflite-model-maker must be installed with --no-deps
+#
+# Use: task training:setup  (handles install order correctly)
 tensorflow-macos==2.9.2
 tensorflow-metal==0.5.1
 tflite-model-maker==0.4.2
