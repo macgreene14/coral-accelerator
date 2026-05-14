@@ -126,3 +126,85 @@ def voc_xml_to_coco_annotations(
         ann_id += 1
 
     return image_info, annotations
+
+
+import imagehash
+from PIL import Image as PILImage
+from sklearn.model_selection import StratifiedGroupKFold
+
+
+def find_duplicates(image_paths: list, threshold: int = 8) -> set:
+    """Return set of indices to remove (keeps first occurrence of near-duplicates).
+
+    Uses perceptual hash (pHash). Two images with hamming distance < threshold
+    are considered duplicates. Typical value: threshold=8 for video sequences.
+    """
+    hashes = []
+    for path in image_paths:
+        img = PILImage.open(path).convert("L")
+        hashes.append(imagehash.phash(img))
+
+    to_remove: set = set()
+    for i in range(len(hashes)):
+        if i in to_remove:
+            continue
+        for j in range(i + 1, len(hashes)):
+            if j in to_remove:
+                continue
+            if hashes[i] - hashes[j] < threshold:
+                to_remove.add(j)
+    return to_remove
+
+
+def stratified_split(
+    ids: list,
+    labels: list,
+    groups: list,
+    ratios: tuple = (0.8, 0.1, 0.1),
+    seed: int = 42,
+) -> tuple:
+    """Split ids into (train, val, test) with stratification and group isolation.
+
+    Stratification ensures rare classes appear in all splits.
+    Group isolation prevents leakage between video sequences from the same source.
+
+    Args:
+        ids: List of image IDs.
+        labels: Primary class label per image (same length as ids).
+        groups: Source-group identifier per image (e.g. video sequence name).
+        ratios: (train, val, test) fractions summing to 1.0.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        (train_ids, val_ids, test_ids)
+    """
+    ids_arr = list(ids)
+    labels_arr = list(labels)
+    groups_arr = list(groups)
+    n = len(ids_arr)
+
+    # First split: separate test set
+    splitter = StratifiedGroupKFold(n_splits=max(2, round(1 / ratios[2])), shuffle=True, random_state=seed)
+    splits = list(splitter.split(ids_arr, labels_arr, groups_arr))
+    # Use last fold's test indices as test set
+    _, test_idx = splits[-1]
+    trainval_idx = [i for i in range(n) if i not in set(test_idx)]
+
+    # Second split: separate val from train
+    trainval_ids = [ids_arr[i] for i in trainval_idx]
+    trainval_labels = [labels_arr[i] for i in trainval_idx]
+    trainval_groups = [groups_arr[i] for i in trainval_idx]
+
+    val_frac = ratios[1] / (ratios[0] + ratios[1])
+    splitter2 = StratifiedGroupKFold(
+        n_splits=max(2, round(1 / val_frac)), shuffle=True, random_state=seed
+    )
+    splits2 = list(splitter2.split(trainval_ids, trainval_labels, trainval_groups))
+    _, val_local_idx = splits2[-1]
+    train_local_idx = [i for i in range(len(trainval_ids)) if i not in set(val_local_idx)]
+
+    train_ids = [trainval_ids[i] for i in train_local_idx]
+    val_ids = [trainval_ids[i] for i in val_local_idx]
+    test_ids = [ids_arr[i] for i in test_idx]
+
+    return train_ids, val_ids, test_ids

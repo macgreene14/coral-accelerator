@@ -8,6 +8,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 from preprocess import normalize_ir_image
 from preprocess import binary_to_full_bbox, polygon_to_bbox, voc_xml_to_coco_annotations
+from preprocess import find_duplicates, stratified_split
+from PIL import Image as PILImage
 
 
 class TestNormalizeIrImage:
@@ -132,3 +134,69 @@ class TestVocXmlToCocoAnnotations:
         )
         _, anns = voc_xml_to_coco_annotations(xml, image_id=1, ann_id_start=0)
         assert anns[0]["bbox"] == [10, 20, 40, 40]
+
+
+class TestFindDuplicates:
+    def test_identical_images_all_but_first_removed(self, tmp_path):
+        arr = np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+        paths = []
+        for i in range(3):
+            p = tmp_path / f"img{i}.jpg"
+            PILImage.fromarray(arr).save(p)
+            paths.append(p)
+        dupes = find_duplicates(paths, threshold=8)
+        assert len(dupes) == 2  # keep index 0, remove 1 and 2
+
+    def test_different_images_not_flagged(self, tmp_path):
+        paths = []
+        for i in range(3):
+            arr = np.zeros((64, 64, 3), dtype=np.uint8)
+            arr[:, :, 0] = i * 80  # clearly different
+            p = tmp_path / f"img{i}.jpg"
+            PILImage.fromarray(arr).save(p)
+            paths.append(p)
+        dupes = find_duplicates(paths, threshold=8)
+        assert len(dupes) == 0
+
+    def test_returns_set_of_indices(self, tmp_path):
+        arr = np.zeros((64, 64, 3), dtype=np.uint8)
+        p = tmp_path / "single.jpg"
+        PILImage.fromarray(arr).save(p)
+        dupes = find_duplicates([p], threshold=8)
+        assert isinstance(dupes, set)
+        assert len(dupes) == 0  # single image → no duplicates
+
+
+class TestStratifiedSplit:
+    def test_split_ratios_approximately_correct(self):
+        ids = list(range(100))
+        labels = [i % 3 for i in range(100)]
+        groups = [str(i % 10) for i in range(100)]
+        train, val, test = stratified_split(ids, labels, groups, ratios=(0.8, 0.1, 0.1))
+        assert abs(len(train) - 80) <= 5
+        assert abs(len(val) - 10) <= 5
+        assert abs(len(test) - 10) <= 5
+
+    def test_splits_are_disjoint(self):
+        ids = list(range(100))
+        labels = [i % 3 for i in range(100)]
+        groups = [str(i % 10) for i in range(100)]
+        train, val, test = stratified_split(ids, labels, groups)
+        assert set(train).isdisjoint(set(val))
+        assert set(train).isdisjoint(set(test))
+        assert set(val).isdisjoint(set(test))
+
+    def test_all_ids_appear_exactly_once(self):
+        ids = list(range(100))
+        labels = [i % 3 for i in range(100)]
+        groups = [str(i % 10) for i in range(100)]
+        train, val, test = stratified_split(ids, labels, groups)
+        assert sorted(train + val + test) == ids
+
+    def test_seeded_split_is_reproducible(self):
+        ids = list(range(50))
+        labels = [i % 2 for i in range(50)]
+        groups = [str(i % 5) for i in range(50)]
+        r1 = stratified_split(ids, labels, groups, seed=42)
+        r2 = stratified_split(ids, labels, groups, seed=42)
+        assert r1 == r2
