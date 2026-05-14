@@ -28,19 +28,70 @@ tasks:
         rm -rf "$TMP"
         echo "Done. Verifying architecture..."
         file "$EDGETPU_LIB"
+        # libedgetpu was built against /opt/homebrew/lib/libusb-1.0.0.dylib (arm64 path).
+        # On Apple Silicon we need the x86_64 libusb from Rosetta Homebrew (/usr/local).
+        X86_BREW="/usr/local/bin/brew"
+        if [ -f "$X86_BREW" ]; then
+          echo "Installing x86_64 libusb via Rosetta Homebrew..."
+          arch -x86_64 "$X86_BREW" install libusb
+          echo "Patching libedgetpu to use x86_64 libusb path..."
+          install_name_tool -change \
+            /opt/homebrew/lib/libusb-1.0.0.dylib \
+            /usr/local/lib/libusb-1.0.0.dylib \
+            "$EDGETPU_LIB"
+          echo "Patch applied. Verifying:"
+          otool -L "$EDGETPU_LIB" | grep libusb
+        else
+          echo "WARNING: Rosetta Homebrew not found at $X86_BREW"
+          echo "If pycoral fails to load, install x86_64 Homebrew and re-run this task."
+        fi
+
+  patch-edgetpu-libusb:
+    desc: Patch libedgetpu to use x86_64 libusb (run once manually if install-edgetpu can't sudo)
+    cmds:
+      - |
+        EDGETPU_LIB="/usr/local/lib/libedgetpu.1.0.dylib"
+        X86_LIBUSB="/usr/local/lib/libusb-1.0.0.dylib"
+        if [ ! -f "$X86_LIBUSB" ]; then
+          echo "ERROR: x86_64 libusb not found at $X86_LIBUSB"
+          echo "Run: arch -x86_64 /usr/local/bin/brew install libusb"
+          exit 1
+        fi
+        CURRENT=$(otool -L "$EDGETPU_LIB" | grep libusb | awk '{print $1}')
+        if [ "$CURRENT" = "$X86_LIBUSB" ]; then
+          echo "libedgetpu already patched (libusb path is $CURRENT)"
+          exit 0
+        fi
+        echo "Patching $EDGETPU_LIB: $CURRENT -> $X86_LIBUSB"
+        sudo install_name_tool -change "$CURRENT" "$X86_LIBUSB" "$EDGETPU_LIB"
+        echo "Done. Verifying:"
+        otool -L "$EDGETPU_LIB" | grep libusb
 
   install:
     desc: Install uv (if missing), check libedgetpu, set up Python 3.9 venv and dependencies
     cmds:
       - |
-        if ! command -v uv &>/dev/null; then
-          if [ ! -f "$HOME/.local/bin/uv" ]; then
-            echo "Installing uv..."
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-          fi
-          export PATH="$HOME/.local/bin:$PATH"
+        # We need an x86_64 uv binary to create a Rosetta venv + install pycoral wheels.
+        # The default uv installer produces a native arm64 binary on Apple Silicon,
+        # which cannot be spawned under arch -x86_64. Install a separate x86_64 copy.
+        UV_X86="$HOME/.local/bin/uv-x86_64"
+        if [ ! -f "$UV_X86" ] || ! file "$UV_X86" | grep -q x86_64; then
+          echo "Installing x86_64 uv via Rosetta..."
+          TMP=$(mktemp -d)
+          # Download the macOS x86_64 uv binary directly from the GitHub release
+          UV_VERSION=$(curl -fsSL https://api.github.com/repos/astral-sh/uv/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/')
+          curl -fsSL "https://github.com/astral-sh/uv/releases/download/0.${UV_VERSION#0.}/uv-x86_64-apple-darwin.tar.gz" \
+            -o "$TMP/uv-x86_64.tar.gz" 2>/dev/null || \
+          curl -fsSL "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-apple-darwin.tar.gz" \
+            -o "$TMP/uv-x86_64.tar.gz"
+          tar -xzf "$TMP/uv-x86_64.tar.gz" -C "$TMP"
+          cp "$TMP/uv-x86_64-apple-darwin/uv" "$UV_X86"
+          chmod +x "$UV_X86"
+          rm -rf "$TMP"
+          echo "x86_64 uv installed at $UV_X86"
+        else
+          echo "x86_64 uv already present at $UV_X86"
         fi
-        UV=$(command -v uv 2>/dev/null || echo "$HOME/.local/bin/uv")
         EDGETPU_LIB="/usr/local/lib/libedgetpu.1.dylib"
         if [ ! -f "$EDGETPU_LIB" ]; then
           echo ""
@@ -53,11 +104,16 @@ tasks:
           exit 1
         fi
         echo "libedgetpu found at $EDGETPU_LIB"
-        $UV venv --python 3.9
-        $UV sync --extra dev
+        arch -x86_64 "$UV_X86" venv --python 3.9
+        arch -x86_64 "$UV_X86" sync --extra dev
+        # pycoral's .so uses @rpath/libedgetpu.1.dylib; DYLD_LIBRARY_PATH is stripped
+        # by macOS SIP when spawning under Rosetta, so symlink the lib into pybind/.
+        PYBIND=".venv/lib/python3.9/site-packages/pycoral/pybind"
+        ln -sf "$EDGETPU_LIB" "$PYBIND/libedgetpu.1.dylib"
+        echo "Symlinked libedgetpu into $PYBIND"
 
   download-models:
-    desc: Download MobileNet v2 EdgeTPU model and ImageNet labels into models/
+    desc: Download classification and detection models + labels into models/
     cmds:
       - mkdir -p models
       - |
@@ -75,6 +131,22 @@ tasks:
             "https://raw.githubusercontent.com/google-coral/test_data/master/imagenet_labels.txt"
         else
           echo "Labels already present: models/imagenet_labels.txt"
+        fi
+      - |
+        if [ ! -f "models/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite" ]; then
+          echo "Downloading SSD MobileNet v2 COCO EdgeTPU model..."
+          curl -L -o models/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite"
+        else
+          echo "Model already present: models/ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/coco_labels.txt" ]; then
+          echo "Downloading COCO labels..."
+          curl -L -o models/coco_labels.txt \
+            "https://raw.githubusercontent.com/google-coral/test_data/master/coco_labels.txt"
+        else
+          echo "Labels already present: models/coco_labels.txt"
         fi
 
   classify:
