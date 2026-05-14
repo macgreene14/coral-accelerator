@@ -164,9 +164,18 @@ tasks:
       - "arch -x86_64 {{.PYTHON}} src/classify.py --display"
 
   detect:
-    desc: Object detection (not yet implemented)
+    desc: Run object detection using the laptop camera and Coral USB Accelerator
+    env:
+      DYLD_LIBRARY_PATH: /usr/local/lib
     cmds:
-      - echo "Detection not yet implemented — run 'task classify' instead"
+      - "arch -x86_64 {{.PYTHON}} src/detect.py"
+
+  detect-display:
+    desc: Run detection with live OpenCV preview window
+    env:
+      DYLD_LIBRARY_PATH: /usr/local/lib
+    cmds:
+      - "arch -x86_64 {{.PYTHON}} src/detect.py --display"
 
   test:
     desc: Run unit tests (no EdgeTPU or camera required)

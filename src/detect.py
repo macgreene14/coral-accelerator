@@ -93,7 +93,90 @@ def draw_detections(
 
 
 def main():
-    print("Detection not yet implemented — run 'task classify' instead")
+    import argparse
+    parser = argparse.ArgumentParser(description="Coral USB object detection")
+    parser.add_argument("--display", action="store_true", help="Show live camera window with detections")
+    parser.add_argument("--threshold", type=float, default=0.4, help="Confidence threshold (default: 0.4)")
+    args = parser.parse_args()
+
+    if not find_coral_usb():
+        print("ERROR: Coral USB Accelerator not detected.", file=sys.stderr)
+        print("Check USB connection. Vendor IDs: 0x1a6e (bootloader) or 0x18d1 (runtime).", file=sys.stderr)
+        sys.exit(1)
+
+    if not MODEL_PATH.exists():
+        print(f"ERROR: Model not found at {MODEL_PATH}", file=sys.stderr)
+        print("Run: task download-models", file=sys.stderr)
+        sys.exit(1)
+
+    if not LABELS_PATH.exists():
+        print(f"ERROR: Labels not found at {LABELS_PATH}", file=sys.stderr)
+        print("Run: task download-models", file=sys.stderr)
+        sys.exit(1)
+
+    # pycoral imports are deferred so helpers stay testable without libedgetpu.
+    import pycoral.utils.edgetpu as _edgetpu_mod
+    # Under Rosetta on Apple Silicon, ctypes bare-name dlopen does not search
+    # /usr/local/lib. Override with absolute path so load_delegate finds the lib.
+    _edgetpu_mod._EDGETPU_SHARED_LIB = "/usr/local/lib/libedgetpu.1.dylib"
+    from pycoral.adapters import common
+    from pycoral.adapters import detect as coral_detect
+    from pycoral.utils.edgetpu import make_interpreter
+
+    print("Loading model on EdgeTPU...")
+    interpreter = make_interpreter(str(MODEL_PATH))
+    interpreter.allocate_tensors()
+
+    labels = load_labels(LABELS_PATH)
+    _, input_height, input_width, _ = interpreter.get_input_details()[0]["shape"]
+
+    print("Opening camera...")
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("ERROR: Could not open camera (index 0).", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Running detection (threshold={args.threshold:.0%}) — press Ctrl+C to stop.\n")
+    try:
+        consecutive_failures = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                consecutive_failures += 1
+                if consecutive_failures >= 10:
+                    print("ERROR: Failed to capture frame.", file=sys.stderr)
+                    break
+                continue
+            consecutive_failures = 0
+
+            resized = preprocess_frame(frame, (input_width, input_height))
+            common.set_input(interpreter, resized)
+            interpreter.invoke()
+            detections = coral_detect.get_objects(interpreter, args.threshold)
+            top = get_top_detections(detections, args.threshold)
+
+            if top:
+                line = "  ".join(
+                    f"{labels[d.id] if d.id < len(labels) else d.id} {d.score:.0%}"
+                    for d in top
+                )
+            else:
+                line = "(no detections)"
+            print(f"\r{line:<60}", end="", flush=True)
+
+            if args.display:
+                annotated = draw_detections(frame, top, labels, input_size=(input_width, input_height))
+                cv2.imshow("Detect", annotated)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    print("\nStopped.")
+                    break
+
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        cap.release()
+        if args.display:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
