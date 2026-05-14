@@ -208,3 +208,175 @@ def stratified_split(
     test_ids = [ids_arr[i] for i in test_idx]
 
     return train_ids, val_ids, test_ids
+
+
+import json
+import shutil
+from collections import Counter
+
+
+def _primary_class(image_id: int, annotations: list) -> int:
+    """Return most common category_id for a given image_id, or 0 if none."""
+    cats = [a["category_id"] for a in annotations if a["image_id"] == image_id]
+    return Counter(cats).most_common(1)[0][0] if cats else 0
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Preprocess PV thermal datasets to COCO JSON")
+    parser.add_argument("--raw", type=Path, required=True, help="Raw data directory (from download_data.py)")
+    parser.add_argument("--output", type=Path, required=True, help="Output directory for processed data")
+    args = parser.parse_args()
+
+    args.output.mkdir(parents=True, exist_ok=True)
+    images_out = args.output / "images"
+    images_out.mkdir(exist_ok=True)
+
+    all_images: list = []
+    all_annotations: list = []
+    image_id = 1
+    ann_id = 1
+
+    # ── 1. InfraredSolarModules (Pascal VOC) ──────────────────────────────────
+    ism_dir = args.raw / "infrared_solar_modules"
+    if ism_dir.exists():
+        print("Processing InfraredSolarModules...")
+        for xml_path in sorted(ism_dir.rglob("*.xml")):
+            img_path = next(
+                (xml_path.with_suffix(ext) for ext in (".jpg", ".jpeg", ".png")
+                 if xml_path.with_suffix(ext).exists()),
+                None,
+            )
+            if img_path is None:
+                continue
+            img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
+            if img is None:
+                continue
+            normalized = normalize_ir_image(img)
+            out_name = f"ism_{image_id:05d}.jpg"
+            cv2.imwrite(str(images_out / out_name), normalized)
+            h, w = normalized.shape[:2]
+
+            img_info, anns = voc_xml_to_coco_annotations(xml_path, image_id, ann_id)
+            img_info["file_name"] = out_name
+            img_info["width"] = w
+            img_info["height"] = h
+            img_info["source_group"] = xml_path.parent.name
+            all_images.append(img_info)
+            all_annotations.extend(anns)
+            ann_id += len(anns)
+            image_id += 1
+        print(f"  InfraredSolarModules: {image_id - 1} images")
+
+    # ── 2. PVDN (polygon mask JSON or unannotated frames) ─────────────────────
+    pvdn_dir = args.raw / "pvdn"
+    if pvdn_dir.exists():
+        print("Processing PVDN...")
+        pvdn_start = image_id
+        for img_path in sorted(pvdn_dir.rglob("*.jpg")):
+            img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
+            if img is None:
+                continue
+            normalized = normalize_ir_image(img)
+            out_name = f"pvdn_{image_id:05d}.jpg"
+            cv2.imwrite(str(images_out / out_name), normalized)
+            h_img, w_img = normalized.shape[:2]
+
+            img_info = {
+                "id": image_id, "file_name": out_name,
+                "width": w_img, "height": h_img,
+                "source_group": img_path.parent.name,
+            }
+            json_path = img_path.with_suffix(".json")
+            anns_for_img = []
+            if json_path.exists():
+                with open(json_path) as f:
+                    mask_data = json.load(f)
+                for obj in mask_data.get("objects", []):
+                    label = obj.get("label", "anomaly")
+                    cat_id = CLASS_MAP.get(label, 0)
+                    polygon = obj.get("polygon", [])
+                    bbox = polygon_to_bbox(polygon) if polygon else binary_to_full_bbox(w_img, h_img)
+                    anns_for_img.append({
+                        "id": ann_id, "image_id": image_id, "category_id": cat_id,
+                        "bbox": bbox, "area": bbox[2] * bbox[3], "iscrowd": 0,
+                    })
+                    ann_id += 1
+            else:
+                anns_for_img.append({
+                    "id": ann_id, "image_id": image_id, "category_id": 0,
+                    "bbox": binary_to_full_bbox(w_img, h_img), "area": w_img * h_img, "iscrowd": 0,
+                })
+                ann_id += 1
+
+            all_images.append(img_info)
+            all_annotations.extend(anns_for_img)
+            image_id += 1
+        print(f"  PVDN: {image_id - pvdn_start} images")
+
+    # ── 3. Thermographic PV (binary classification, anomaly images only) ──────
+    therm_dir = args.raw / "thermographic_pv"
+    if therm_dir.exists():
+        print("Processing Thermographic PV Systems...")
+        therm_start = image_id
+        anomaly_dirs = [d for d in therm_dir.rglob("*")
+                        if d.is_dir() and "anomal" in d.name.lower()]
+        for img_path in sorted(p for d in anomaly_dirs for p in d.rglob("*.jpg")):
+            img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
+            if img is None:
+                continue
+            normalized = normalize_ir_image(img)
+            out_name = f"therm_{image_id:05d}.jpg"
+            cv2.imwrite(str(images_out / out_name), normalized)
+            h_img, w_img = normalized.shape[:2]
+            all_images.append({
+                "id": image_id, "file_name": out_name,
+                "width": w_img, "height": h_img, "source_group": "therm",
+            })
+            all_annotations.append({
+                "id": ann_id, "image_id": image_id, "category_id": 0,
+                "bbox": binary_to_full_bbox(w_img, h_img), "area": w_img * h_img, "iscrowd": 0,
+            })
+            ann_id += 1
+            image_id += 1
+        print(f"  Thermographic PV: {image_id - therm_start} images")
+
+    print(f"\nTotal images before deduplication: {len(all_images)}")
+
+    # ── 4. Deduplicate ────────────────────────────────────────────────────────
+    paths_for_dedup = [images_out / img["file_name"] for img in all_images]
+    dupes = find_duplicates(paths_for_dedup, threshold=8)
+    print(f"Removing {len(dupes)} near-duplicate images")
+    keep_indices = [i for i in range(len(all_images)) if i not in dupes]
+    kept_ids = {all_images[i]["id"] for i in keep_indices}
+    all_images = [all_images[i] for i in keep_indices]
+    all_annotations = [a for a in all_annotations if a["image_id"] in kept_ids]
+    print(f"Total images after deduplication: {len(all_images)}")
+
+    # ── 5. Stratified split ───────────────────────────────────────────────────
+    img_ids = [img["id"] for img in all_images]
+    labels = [_primary_class(iid, all_annotations) for iid in img_ids]
+    groups = [img.get("source_group", "default") for img in all_images]
+    train_ids, val_ids, test_ids = stratified_split(img_ids, labels, groups, seed=42)
+
+    # ── 6. Write COCO JSON splits ─────────────────────────────────────────────
+    id_to_img = {img["id"]: img for img in all_images}
+    id_to_anns: dict = {}
+    for ann in all_annotations:
+        id_to_anns.setdefault(ann["image_id"], []).append(ann)
+
+    for split_name, split_ids in [("train", train_ids), ("val", val_ids), ("test", test_ids)]:
+        split_imgs = [id_to_img[iid] for iid in split_ids]
+        split_anns = [a for iid in split_ids for a in id_to_anns.get(iid, [])]
+        coco = {"images": split_imgs, "annotations": split_anns, "categories": CATEGORIES}
+        out_path = args.output / f"{split_name}.json"
+        with open(out_path, "w") as f:
+            json.dump(coco, f, indent=2)
+        print(f"  {split_name}: {len(split_imgs)} images, {len(split_anns)} annotations → {out_path}")
+
+    print("\nPreprocessing complete.")
+
+
+if __name__ == "__main__":
+    main()
