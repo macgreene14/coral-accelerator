@@ -1,4 +1,5 @@
 """Object detection using Coral USB Accelerator and laptop camera."""
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -15,8 +16,8 @@ _DETECTION_COLORS = [
     (0, 200, 0),    # green
     (0, 0, 200),    # red
     (200, 0, 0),    # blue
-    (0, 200, 200),  # yellow
-    (200, 200, 0),  # cyan
+    (0, 200, 200),  # olive-yellow
+    (200, 200, 0),  # teal
     (200, 0, 200),  # magenta
     (80, 200, 0),   # lime
     (0, 100, 200),  # orange
@@ -83,17 +84,16 @@ def draw_detections(
         cv2.rectangle(out, (xmin, ymin), (xmax, ymax), color, 2)
 
         label_text = f"{labels[obj.id] if obj.id < len(labels) else str(obj.id)} {obj.score:.0%}"
-        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.44, 1)
+        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.62, 1)
         pill_y = max(ymin - th - 6, 0)
         cv2.rectangle(out, (xmin, pill_y), (xmin + tw + 6, pill_y + th + 6), color, -1)
         cv2.putText(out, label_text, (xmin + 3, pill_y + th + 2),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
 
     return out
 
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser(description="Coral USB object detection")
     parser.add_argument("--display", action="store_true", help="Show live camera window with detections")
     parser.add_argument("--threshold", type=float, default=0.4, help="Confidence threshold (default: 0.4)")
@@ -152,8 +152,7 @@ def main():
             resized = preprocess_frame(frame, (input_width, input_height))
             common.set_input(interpreter, resized)
             interpreter.invoke()
-            detections = coral_detect.get_objects(interpreter, args.threshold)
-            top = get_top_detections(detections, args.threshold)
+            top = coral_detect.get_objects(interpreter, args.threshold)
 
             if top:
                 line = "  ".join(

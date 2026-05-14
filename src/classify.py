@@ -56,7 +56,7 @@ def draw_classification_overlay(frame: np.ndarray, top: list) -> np.ndarray:
     if not top:
         return out
 
-    row_h = 28
+    row_h = 36
     pad = 8
     panel_w = 340
     panel_h = len(top) * row_h + pad
@@ -79,9 +79,9 @@ def draw_classification_overlay(frame: np.ndarray, top: list) -> np.ndarray:
         bar_w = int(conf * bar_max_w)
         cv2.rectangle(out, (panel_x + 6, y + 4), (panel_x + 6 + bar_w, y + row_h - 4), color, -1)
         cv2.putText(out, label[:22], (panel_x + 132, y + row_h - 7),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
         cv2.putText(out, f"{conf:.0%}", (panel_x + 300, y + row_h - 7),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.44, (220, 220, 220), 1, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.62, (220, 220, 220), 1, cv2.LINE_AA)
 
     return out
 
