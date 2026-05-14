@@ -148,6 +148,80 @@ tasks:
         else
           echo "Labels already present: models/coco_labels.txt"
         fi
+      # --- Additional classification models (reuse imagenet_labels.txt) ---
+      - |
+        if [ ! -f "models/mobilenet_v1_1.0_224_quant_edgetpu.tflite" ]; then
+          echo "Downloading MobileNet v1 EdgeTPU model..."
+          curl -L -o models/mobilenet_v1_1.0_224_quant_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/mobilenet_v1_1.0_224_quant_edgetpu.tflite"
+        else
+          echo "Model already present: models/mobilenet_v1_1.0_224_quant_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientnet-edgetpu-S_quant_edgetpu.tflite" ]; then
+          echo "Downloading EfficientNet-EdgeTPU-S classification model..."
+          curl -L -o models/efficientnet-edgetpu-S_quant_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientnet-edgetpu-S_quant_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientnet-edgetpu-S_quant_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientnet-edgetpu-M_quant_edgetpu.tflite" ]; then
+          echo "Downloading EfficientNet-EdgeTPU-M classification model..."
+          curl -L -o models/efficientnet-edgetpu-M_quant_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientnet-edgetpu-M_quant_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientnet-edgetpu-M_quant_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientnet-edgetpu-L_quant_edgetpu.tflite" ]; then
+          echo "Downloading EfficientNet-EdgeTPU-L classification model..."
+          curl -L -o models/efficientnet-edgetpu-L_quant_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientnet-edgetpu-L_quant_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientnet-edgetpu-L_quant_edgetpu.tflite"
+        fi
+      # --- Additional detection models (reuse coco_labels.txt) ---
+      - |
+        if [ ! -f "models/ssd_mobilenet_v1_coco_quant_postprocess_edgetpu.tflite" ]; then
+          echo "Downloading SSD MobileNet v1 COCO EdgeTPU model..."
+          curl -L -o models/ssd_mobilenet_v1_coco_quant_postprocess_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/ssd_mobilenet_v1_coco_quant_postprocess_edgetpu.tflite"
+        else
+          echo "Model already present: models/ssd_mobilenet_v1_coco_quant_postprocess_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientdet_lite0_320_ptq_edgetpu.tflite" ]; then
+          echo "Downloading EfficientDet-Lite0 detection model (320px)..."
+          curl -L -o models/efficientdet_lite0_320_ptq_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientdet_lite0_320_ptq_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientdet_lite0_320_ptq_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientdet_lite1_384_ptq_edgetpu.tflite" ]; then
+          echo "Downloading EfficientDet-Lite1 detection model (384px)..."
+          curl -L -o models/efficientdet_lite1_384_ptq_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientdet_lite1_384_ptq_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientdet_lite1_384_ptq_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientdet_lite2_448_ptq_edgetpu.tflite" ]; then
+          echo "Downloading EfficientDet-Lite2 detection model (448px)..."
+          curl -L -o models/efficientdet_lite2_448_ptq_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientdet_lite2_448_ptq_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientdet_lite2_448_ptq_edgetpu.tflite"
+        fi
+      - |
+        if [ ! -f "models/efficientdet_lite3_512_ptq_edgetpu.tflite" ]; then
+          echo "Downloading EfficientDet-Lite3 detection model (512px)..."
+          curl -L -o models/efficientdet_lite3_512_ptq_edgetpu.tflite \
+            "https://github.com/google-coral/test_data/raw/master/efficientdet_lite3_512_ptq_edgetpu.tflite"
+        else
+          echo "Model already present: models/efficientdet_lite3_512_ptq_edgetpu.tflite"
+        fi
 
   classify:
     desc: Run image classification using the laptop camera and Coral USB Accelerator
