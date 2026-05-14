@@ -1,5 +1,10 @@
 version: '3'
 
+includes:
+  training:
+    taskfile: ./training/Taskfile.yml
+    dir: ./training
+
 vars:
   PYTHON: .venv/bin/python
   EDGETPU_RUNTIME_URL: https://github.com/google-coral/libedgetpu/releases/download/release-grouper/edgetpu_runtime_20221024.zip
@@ -250,6 +255,20 @@ tasks:
       DYLD_LIBRARY_PATH: /usr/local/lib
     cmds:
       - "arch -x86_64 {{.PYTHON}} src/detect.py --display"
+
+  detect-pv:
+    desc: Run PV defect detection using thermal camera and Coral USB Accelerator
+    env:
+      DYLD_LIBRARY_PATH: /usr/local/lib
+    cmds:
+      - "arch -x86_64 {{.PYTHON}} src/detect.py --model pv"
+
+  detect-pv-display:
+    desc: Run PV defect detection with live OpenCV preview window
+    env:
+      DYLD_LIBRARY_PATH: /usr/local/lib
+    cmds:
+      - "arch -x86_64 {{.PYTHON}} src/detect.py --model pv --display"
 
   test:
     desc: Run unit tests (no EdgeTPU or camera required)

@@ -1,0 +1,59 @@
+version: '3'
+
+vars:
+  PYTHON: ../.venv-training/bin/python
+
+tasks:
+  setup:
+    desc: Create Python 3.9 venv and install training dependencies (handles TF/Model Maker conflict)
+    cmds:
+      - |
+        uv venv ../.venv-training --python 3.9
+        PIP="../.venv-training/bin/pip"
+        $PIP install --upgrade pip
+        # Install TF first — tflite-model-maker pins an older TF, we install ours first
+        $PIP install tensorflow-macos==2.9.2 tensorflow-metal==0.5.1
+        # Install tflite-model-maker without its TF constraint
+        $PIP install tflite-model-maker==0.4.2 --no-deps
+        # Install remaining dependencies
+        $PIP install kagglehub "ImageHash>=4.3.1" "scikit-learn>=1.3.0" \
+          "pycocotools>=2.0.7" jupyter "matplotlib>=3.7.0" "seaborn>=0.12.0" \
+          "Pillow>=9.5.0" "numpy>=1.23.0,<2.0" requests lxml \
+          "opencv-python>=4.8.0" tqdm "pytest>=7.0.0"
+
+  download:
+    desc: Download PV thermal datasets from Kaggle and Zenodo (~1.5 GB, requires ~/.kaggle/kaggle.json)
+    cmds:
+      - "{{.PYTHON}} scripts/download_data.py --output data/raw"
+
+  preprocess:
+    desc: Normalize IR images, unify annotations, deduplicate, split 80/10/10
+    cmds:
+      - "{{.PYTHON}} scripts/preprocess.py --raw data/raw --output data/processed"
+
+  train:
+    desc: Fine-tune EfficientDet-Lite0 on PV thermal dataset (50 epochs, Metal GPU)
+    cmds:
+      - "{{.PYTHON}} scripts/train.py --data data/processed --output models"
+
+  export:
+    desc: Compile quantized TFLite model for EdgeTPU and verify compilation quality
+    cmds:
+      - "{{.PYTHON}} scripts/export.py --quant models/pv_detector_quant.tflite --output models"
+
+  deploy:
+    desc: Copy trained PV model into models/ for use with task detect-pv
+    cmds:
+      - |
+        if [ ! -f "models/pv_detector_edgetpu.tflite" ]; then
+          echo "ERROR: pv_detector_edgetpu.tflite not found. Run task training:export first."
+          exit 1
+        fi
+        cp models/pv_detector_edgetpu.tflite ../models/
+        cp models/pv_labels.txt ../models/
+        echo "Deployed pv_detector_edgetpu.tflite and pv_labels.txt to models/"
+
+  test:
+    desc: Run training pipeline unit tests (no GPU or data required)
+    cmds:
+      - "{{.PYTHON}} -m pytest tests/ -v"
