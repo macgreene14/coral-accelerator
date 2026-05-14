@@ -9,7 +9,7 @@ import pytest
 # Add src/ to path so we can import classify without installing it as a package.
 # pycoral is only imported inside main(), so these tests run without libedgetpu.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from classify import find_coral_usb, get_top_k, load_labels, preprocess_frame
+from classify import draw_classification_overlay, find_coral_usb, get_top_k, load_labels, preprocess_frame
 
 
 class TestLoadLabels:
@@ -64,6 +64,32 @@ class TestGetTopK:
         labels = ["a", "b"]
         result = get_top_k(scores, labels, k=10)
         assert len(result) == 2
+
+
+class TestDrawClassificationOverlay:
+    def test_returns_array_same_shape_as_input(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        top = [("cat", 0.9), ("dog", 0.5), ("bird", 0.2)]
+        result = draw_classification_overlay(frame, top)
+        assert result.shape == frame.shape
+
+    def test_returns_uint8(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        top = [("cat", 0.9)]
+        result = draw_classification_overlay(frame, top)
+        assert result.dtype == np.uint8
+
+    def test_empty_top_returns_unchanged_frame(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        frame[100, 100] = [42, 43, 44]
+        result = draw_classification_overlay(frame, [])
+        assert result[100, 100].tolist() == [42, 43, 44]
+
+    def test_does_not_mutate_input_frame(self):
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        original = frame.copy()
+        draw_classification_overlay(frame, [("cat", 0.9)])
+        np.testing.assert_array_equal(frame, original)
 
 
 class TestFindCoralUsb:
