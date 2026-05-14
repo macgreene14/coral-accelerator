@@ -1,4 +1,5 @@
 """Image classification using Coral USB Accelerator and laptop camera."""
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -86,6 +87,10 @@ def draw_classification_overlay(frame: np.ndarray, top: list) -> np.ndarray:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Coral USB image classification")
+    parser.add_argument("--display", action="store_true", help="Show live camera window with overlay")
+    args = parser.parse_args()
+
     if not find_coral_usb():
         print("ERROR: Coral USB Accelerator not detected.", file=sys.stderr)
         print("Check USB connection. Vendor IDs: 0x1a6e (bootloader) or 0x18d1 (runtime).", file=sys.stderr)
@@ -146,10 +151,18 @@ def main():
             line = "  |  ".join(f"{label[:28]:28s} {conf:.1%}" for label, conf in top)
             print(f"\r{line}", end="", flush=True)
 
+            if args.display:
+                annotated = draw_classification_overlay(frame, top)
+                cv2.imshow("Classify", annotated)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
         cap.release()
+        if args.display:
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

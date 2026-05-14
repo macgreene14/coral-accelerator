@@ -156,6 +156,13 @@ tasks:
     cmds:
       - "arch -x86_64 {{.PYTHON}} src/classify.py"
 
+  classify-display:
+    desc: Run classification with live OpenCV preview window
+    env:
+      DYLD_LIBRARY_PATH: /usr/local/lib
+    cmds:
+      - "arch -x86_64 {{.PYTHON}} src/classify.py --display"
+
   detect:
     desc: Object detection (not yet implemented)
     cmds:
