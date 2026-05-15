@@ -277,7 +277,10 @@ def main() -> None:
             h_img, w_img = normalized.shape[:2]
             all_images.append({
                 "id": image_id, "file_name": out_name,
-                "width": w_img, "height": h_img, "source_group": "ism",
+                "width": w_img, "height": h_img,
+                # Each ISM image is an independent crop — use image_id as group
+                # so StratifiedGroupKFold can split them freely.
+                "source_group": f"ism_{image_id % 10}",
             })
             all_annotations.append({
                 "id": ann_id, "image_id": image_id, "category_id": cat_id,
