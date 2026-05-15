@@ -30,7 +30,7 @@ LABEL_MAP = {
 }
 
 
-def coco_to_pascal_voc(coco_json_path: Path, images_dir: Path, output_dir: Path) -> None:
+def coco_to_pascal_voc(coco_json_path: Path, images_dir: Path, output_dir: Path, max_images: int = 0) -> None:
     """Convert COCO JSON annotations to Pascal VOC directory structure.
 
     Creates:
@@ -53,7 +53,10 @@ def coco_to_pascal_voc(coco_json_path: Path, images_dir: Path, output_dir: Path)
     for ann in coco["annotations"]:
         img_to_anns.setdefault(ann["image_id"], []).append(ann)
 
-    for img_info in coco["images"]:
+    images = coco["images"]
+    if max_images:
+        images = images[:max_images]
+    for img_info in images:
         src = images_dir / img_info["file_name"]
         if not src.exists():
             continue
@@ -70,6 +73,9 @@ def coco_to_pascal_voc(coco_json_path: Path, images_dir: Path, output_dir: Path)
             x, y, w, h = ann["bbox"]
             obj = ET.SubElement(root, "object")
             ET.SubElement(obj, "name").text = cat_map[ann["category_id"]]
+            ET.SubElement(obj, "difficult").text = "0"
+            ET.SubElement(obj, "truncated").text = "0"
+            ET.SubElement(obj, "pose").text = "Unspecified"
             bb = ET.SubElement(obj, "bndbox")
             ET.SubElement(bb, "xmin").text = str(int(x))
             ET.SubElement(bb, "ymin").text = str(int(y))
@@ -107,11 +113,19 @@ def main() -> None:
     voc_dir = args.data / "voc"
 
     # Convert COCO → Pascal VOC if not already done
-    for split in ("train", "val"):
+    # For dry-run use a 20-image subset to minimise conversion time
+    if args.dry_run:
+        from_coco_kwargs = {"max_images": 20}
+        from_val_kwargs = {"max_images": 10}
+    else:
+        from_coco_kwargs = {}
+        from_val_kwargs = {}
+
+    for split, kwargs in (("train", from_coco_kwargs), ("val", from_val_kwargs)):
         voc_split = voc_dir / split
         if not voc_split.exists():
             print(f"Converting {split}.json → Pascal VOC at {voc_split} ...")
-            coco_to_pascal_voc(args.data / f"{split}.json", args.data / "images", voc_split)
+            coco_to_pascal_voc(args.data / f"{split}.json", args.data / "images", voc_split, **kwargs)
 
     print("Loading data...")
     train_data = DataLoader.from_pascal_voc(
@@ -124,11 +138,6 @@ def main() -> None:
         annotations_dir=str(voc_dir / "val" / "Annotations"),
         label_map=LABEL_MAP,
     )
-
-    if args.dry_run:
-        # Slice to 20 training + 10 val images for a quick pipeline check
-        train_data = train_data.split(0.1)[0]
-        val_data = val_data.split(0.2)[0]
 
     print(f"Training images: {len(train_data)}, Validation images: {len(val_data)}")
 

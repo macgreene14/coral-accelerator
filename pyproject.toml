@@ -6,7 +6,7 @@ dependencies = [
     "pycoral~=2.0",
     "tflite-runtime",
     "opencv-python",
-    "numpy",
+    "numpy<2",
 ]
 
 [project.optional-dependencies]
