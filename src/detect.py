@@ -11,6 +11,19 @@ MODELS_DIR = Path(__file__).parent.parent / "models"
 MODEL_PATH = MODELS_DIR / "ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite"
 LABELS_PATH = MODELS_DIR / "coco_labels.txt"
 
+_MODEL_CONFIGS = {
+    "coco": {
+        "model": MODELS_DIR / "ssd_mobilenet_v2_coco_quant_postprocess_edgetpu.tflite",
+        "labels": MODELS_DIR / "coco_labels.txt",
+        "default_threshold": 0.4,
+    },
+    "pv": {
+        "model": MODELS_DIR / "pv_detector_edgetpu.tflite",
+        "labels": MODELS_DIR / "pv_labels.txt",
+        "default_threshold": 0.35,
+    },
+}
+
 # Deterministic per-class colors in BGR
 _DETECTION_COLORS = [
     (0, 200, 0),    # green
@@ -96,22 +109,40 @@ def draw_detections(
 def main():
     parser = argparse.ArgumentParser(description="Coral USB object detection")
     parser.add_argument("--display", action="store_true", help="Show live camera window with detections")
-    parser.add_argument("--threshold", type=float, default=0.4, help="Confidence threshold (default: 0.4)")
+    parser.add_argument(
+        "--model", choices=["coco", "pv"], default="coco",
+        help="Model to use: coco (default COCO SSD) or pv (PV defect detector)"
+    )
+    parser.add_argument(
+        "--threshold", type=float, default=None,
+        help="Confidence threshold (default: 0.4 for coco, 0.35 for pv)"
+    )
     args = parser.parse_args()
+
+    cfg = _MODEL_CONFIGS[args.model]
+    model_path = cfg["model"]
+    labels_path = cfg["labels"]
+    threshold = args.threshold if args.threshold is not None else cfg["default_threshold"]
 
     if not find_coral_usb():
         print("ERROR: Coral USB Accelerator not detected.", file=sys.stderr)
         print("Check USB connection. Vendor IDs: 0x1a6e (bootloader) or 0x18d1 (runtime).", file=sys.stderr)
         sys.exit(1)
 
-    if not MODEL_PATH.exists():
-        print(f"ERROR: Model not found at {MODEL_PATH}", file=sys.stderr)
-        print("Run: task download-models", file=sys.stderr)
+    if not model_path.exists():
+        print(f"ERROR: Model not found at {model_path}", file=sys.stderr)
+        if args.model == "pv":
+            print("Run: task training:export && task training:deploy", file=sys.stderr)
+        else:
+            print("Run: task download-models", file=sys.stderr)
         sys.exit(1)
 
-    if not LABELS_PATH.exists():
-        print(f"ERROR: Labels not found at {LABELS_PATH}", file=sys.stderr)
-        print("Run: task download-models", file=sys.stderr)
+    if not labels_path.exists():
+        print(f"ERROR: Labels not found at {labels_path}", file=sys.stderr)
+        if args.model == "pv":
+            print("Run: task training:export && task training:deploy", file=sys.stderr)
+        else:
+            print("Run: task download-models", file=sys.stderr)
         sys.exit(1)
 
     # pycoral imports are deferred so helpers stay testable without libedgetpu.
@@ -124,10 +155,10 @@ def main():
     from pycoral.utils.edgetpu import make_interpreter
 
     print("Loading model on EdgeTPU...")
-    interpreter = make_interpreter(str(MODEL_PATH))
+    interpreter = make_interpreter(str(model_path))
     interpreter.allocate_tensors()
 
-    labels = load_labels(LABELS_PATH)
+    labels = load_labels(labels_path)
     _, input_height, input_width, _ = interpreter.get_input_details()[0]["shape"]
 
     print("Opening camera...")
@@ -136,7 +167,7 @@ def main():
         print("ERROR: Could not open camera (index 0).", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Running detection (threshold={args.threshold:.0%}) — press Ctrl+C to stop.\n")
+    print(f"Running detection — model={args.model}, threshold={threshold:.0%} — press Ctrl+C to stop.\n")
     try:
         consecutive_failures = 0
         while True:
@@ -152,7 +183,7 @@ def main():
             resized = preprocess_frame(frame, (input_width, input_height))
             common.set_input(interpreter, resized)
             interpreter.invoke()
-            top = coral_detect.get_objects(interpreter, args.threshold)
+            top = coral_detect.get_objects(interpreter, threshold)
 
             if top:
                 line = "  ".join(
