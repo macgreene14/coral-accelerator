@@ -5,16 +5,24 @@ import numpy as np
 
 # Unified class map: covers all name variants across all three datasets
 CLASS_MAP = {
-    # InfraredSolarModules variants
+    # InfraredSolarModules (module_metadata.json anomaly_class values)
+    "Hot-Spot": 0, "Cell": 0,
+    "Hot-Spot-Multi": 3, "Cell-Multi": 3,
+    "Diode": 1, "Diode-Multi": 1,
+    "Soiling": 2,
+    "Shadowing": 4, "Vegetation": 4,
+    "Cracking": 5, "Offline-Module": 5,
+    # Generic / other dataset variants
     "hotspot": 0, "Hotspot": 0, "Hot Spot": 0, "HotSpot": 0,
     "bypass_diode_failure": 1, "Bypass Diode": 1, "BypassDiode": 1, "bypass diode": 1,
-    "soiling": 2, "Soiling": 2,
-    "multi_hotspot": 3, "Multi-Hot Spot": 3, "MultiHotSpot": 3, "multi hotspot": 3,
-    "shadowing": 4, "Shadowing": 4,
+    "soiling": 2, "multi_hotspot": 3, "shadowing": 4,
     "delamination": 5, "Delamination": 5,
     # PVDN generic labels
     "anomaly": 0, "bypass": 1, "disconnected": 5,
 }
+
+# ISM classes to skip (no useful detection annotation possible)
+_ISM_SKIP = {"No-Anomaly"}
 
 CATEGORIES = [
     {"id": i, "name": name, "supercategory": "pv_defect"}
@@ -238,17 +246,27 @@ def main() -> None:
     image_id = 1
     ann_id = 1
 
-    # ── 1. InfraredSolarModules (Pascal VOC) ──────────────────────────────────
+    # ── 1. InfraredSolarModules (module_metadata.json classification labels) ────
+    # Dataset: 20,000 single-module crops (24×40px grayscale), 12 anomaly classes.
+    # No bounding boxes — each anomaly image gets a full-image bbox.
+    # No-Anomaly images are skipped (nothing to detect).
     ism_dir = args.raw / "infrared_solar_modules"
-    if ism_dir.exists():
+    ism_meta = ism_dir / "module_metadata.json"
+    if ism_meta.exists():
         print("Processing InfraredSolarModules...")
-        for xml_path in sorted(ism_dir.rglob("*.xml")):
-            img_path = next(
-                (xml_path.with_suffix(ext) for ext in (".jpg", ".jpeg", ".png")
-                 if xml_path.with_suffix(ext).exists()),
-                None,
-            )
-            if img_path is None:
+        ism_start = image_id
+        with open(ism_meta) as f:
+            ism_data = json.load(f)
+        for key in sorted(ism_data.keys(), key=lambda k: int(k)):
+            entry = ism_data[key]
+            anomaly_class = entry.get("anomaly_class", "No-Anomaly")
+            if anomaly_class in _ISM_SKIP:
+                continue
+            cat_id = CLASS_MAP.get(anomaly_class)
+            if cat_id is None:
+                continue
+            img_path = ism_dir / entry["image_filepath"]
+            if not img_path.exists():
                 continue
             img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
             if img is None:
@@ -256,18 +274,18 @@ def main() -> None:
             normalized = normalize_ir_image(img)
             out_name = f"ism_{image_id:05d}.jpg"
             cv2.imwrite(str(images_out / out_name), normalized)
-            h, w = normalized.shape[:2]
-
-            img_info, anns = voc_xml_to_coco_annotations(xml_path, image_id, ann_id)
-            img_info["file_name"] = out_name
-            img_info["width"] = w
-            img_info["height"] = h
-            img_info["source_group"] = xml_path.parent.name
-            all_images.append(img_info)
-            all_annotations.extend(anns)
-            ann_id += len(anns)
+            h_img, w_img = normalized.shape[:2]
+            all_images.append({
+                "id": image_id, "file_name": out_name,
+                "width": w_img, "height": h_img, "source_group": "ism",
+            })
+            all_annotations.append({
+                "id": ann_id, "image_id": image_id, "category_id": cat_id,
+                "bbox": binary_to_full_bbox(w_img, h_img), "area": w_img * h_img, "iscrowd": 0,
+            })
+            ann_id += 1
             image_id += 1
-        print(f"  InfraredSolarModules: {image_id - 1} images")
+        print(f"  InfraredSolarModules: {image_id - ism_start} anomaly images (No-Anomaly skipped)")
 
     # ── 2. PVDN (polygon mask JSON or unannotated frames) ─────────────────────
     pvdn_dir = args.raw / "pvdn"

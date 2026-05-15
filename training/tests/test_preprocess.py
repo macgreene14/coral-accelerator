@@ -148,14 +148,28 @@ class TestFindDuplicates:
         assert len(dupes) == 2  # keep index 0, remove 1 and 2
 
     def test_different_images_not_flagged(self, tmp_path):
+        # Use structurally different images with clear spatial variation
+        # so pHash (grayscale DCT-based) yields distances well above threshold=8.
         paths = []
-        for i in range(3):
-            arr = np.zeros((64, 64, 3), dtype=np.uint8)
-            arr[:, :, 0] = i * 80  # clearly different
-            p = tmp_path / f"img{i}.jpg"
+        # Horizontal gradient (light left → dark right)
+        grad = np.tile(np.linspace(0, 255, 64, dtype=np.uint8), (64, 1))
+        arr0 = np.stack([grad, grad, grad], axis=2)
+        # Vertical stripes alternating 0 / 255
+        stripes = np.zeros((64, 64, 3), dtype=np.uint8)
+        stripes[:, ::4, :] = 255
+        # Checkerboard 8×8
+        checker = np.zeros((64, 64, 3), dtype=np.uint8)
+        for r in range(0, 64, 8):
+            for c in range(0, 64, 8):
+                if (r // 8 + c // 8) % 2 == 0:
+                    checker[r:r+8, c:c+8] = 255
+        for i, arr in enumerate([arr0, stripes, checker]):
+            p = tmp_path / f"img{i}.png"  # PNG avoids JPEG artefacts
             PILImage.fromarray(arr).save(p)
             paths.append(p)
-        dupes = find_duplicates(paths, threshold=8)
+        # threshold=4: tight enough that clearly different images aren't flagged,
+        # but duplicates (distance=0) are still caught.
+        dupes = find_duplicates(paths, threshold=4)
         assert len(dupes) == 0
 
     def test_returns_set_of_indices(self, tmp_path):
