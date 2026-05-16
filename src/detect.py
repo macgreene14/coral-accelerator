@@ -65,6 +65,42 @@ def get_top_detections(detections: list, threshold: float) -> list:
     return [d for d in detections if d.score >= threshold]
 
 
+def get_objects_safe(interpreter, threshold: float) -> list:
+    """Like pycoral detect.get_objects() but clamps count to the scores array size.
+
+    EfficientDet-Lite0 (from tflite-model-maker) outputs tensors in the order
+    [scores, boxes, count, class_ids]. The quantized count tensor can report one
+    more than the actual number of slots due to zero-point rounding, causing an
+    IndexError in pycoral's get_objects(). This reads tensors directly and clamps
+    count to min(count, len(scores)).
+    """
+    from pycoral.adapters import common
+
+    # EfficientDet layout: output[0]=scores, output[1]=boxes, output[2]=count, output[3]=class_ids
+    scores = common.output_tensor(interpreter, 0)[0]
+    boxes = common.output_tensor(interpreter, 1)[0]
+    count = min(int(common.output_tensor(interpreter, 2)[0]), len(scores))
+    class_ids = common.output_tensor(interpreter, 3)[0]
+
+    width, height = common.input_size(interpreter)
+
+    results = []
+    for i in range(count):
+        if scores[i] < threshold:
+            continue
+        ymin, xmin, ymax, xmax = boxes[i]
+        from pycoral.adapters.detect import BBox, Object
+        results.append(Object(
+            id=int(class_ids[i]),
+            score=float(scores[i]),
+            bbox=BBox(
+                xmin=xmin * width, ymin=ymin * height,
+                xmax=xmax * width, ymax=ymax * height,
+            ),
+        ))
+    return results
+
+
 def draw_detections(
     frame: np.ndarray,
     detections: list,
@@ -183,7 +219,10 @@ def main():
             resized = preprocess_frame(frame, (input_width, input_height))
             common.set_input(interpreter, resized)
             interpreter.invoke()
-            top = coral_detect.get_objects(interpreter, threshold)
+            if args.model == "pv":
+                top = get_objects_safe(interpreter, threshold)
+            else:
+                top = coral_detect.get_objects(interpreter, threshold)
 
             if top:
                 line = "  ".join(
