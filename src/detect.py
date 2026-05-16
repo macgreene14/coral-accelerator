@@ -81,20 +81,18 @@ def get_objects_safe(interpreter, threshold: float) -> list:
 
     out = interpreter.get_output_details()
     # EfficientDet layout: [scores, boxes, count, class_ids]
-    scores_raw  = interpreter.tensor(out[0]['index'])()[0]
-    boxes_raw   = interpreter.tensor(out[1]['index'])()[0]
-    count_raw   = interpreter.tensor(out[2]['index'])()[0]
-    class_raw   = interpreter.tensor(out[3]['index'])()[0]
+    scores_raw = interpreter.tensor(out[0]['index'])()[0]   # shape (25,)
+    boxes_raw  = interpreter.tensor(out[1]['index'])()[0]   # shape (25, 4)
+    count_val  = interpreter.tensor(out[2]['index'])().flat[0]  # scalar
+    class_raw  = interpreter.tensor(out[3]['index'])()[0]   # shape (25,)
 
-    # Dequantize scores and class_ids using their quantization params
     s_scale, s_zp = out[0]['quantization']
+    b_scale, b_zp = out[1]['quantization']
+    cnt_scale      = out[2]['quantization'][0]
     c_scale, c_zp = out[3]['quantization']
 
-    count = min(int(float(count_raw[0]) * out[2]['quantization'][0]), len(scores_raw))
+    count = min(int(float(count_val) * cnt_scale), len(scores_raw))
     width, height = common.input_size(interpreter)
-
-    # Boxes: dequantize with box tensor params
-    b_scale, b_zp = out[1]['quantization']
 
     results = []
     for i in range(count):
