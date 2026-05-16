@@ -66,33 +66,50 @@ def get_top_detections(detections: list, threshold: float) -> list:
 
 
 def get_objects_safe(interpreter, threshold: float) -> list:
-    """Like pycoral detect.get_objects() but clamps count to the scores array size.
+    """Like pycoral detect.get_objects() but with two EfficientDet-Lite0 fixes.
 
-    EfficientDet-Lite0 (from tflite-model-maker) outputs tensors in the order
-    [scores, boxes, count, class_ids]. The quantized count tensor can report one
-    more than the actual number of slots due to zero-point rounding, causing an
-    IndexError in pycoral's get_objects(). This reads tensors directly and clamps
-    count to min(count, len(scores)).
+    Fix 1 — count off-by-one: the quantized count tensor can return one more than
+    the scores array size due to zero-point rounding; clamp to min(count, len(scores)).
+
+    Fix 2 — class_id dequantization: EfficientDet outputs raw uint8 class IDs that
+    must be dequantized (scale * raw_value) and rounded to get the true integer class
+    index. pycoral's get_objects() casts the raw uint8 directly, yielding garbage
+    values like 51, 102, 153, 204, 255 instead of 0-5.
     """
     from pycoral.adapters import common
+    from pycoral.adapters.detect import BBox, Object
 
-    # EfficientDet layout: output[0]=scores, output[1]=boxes, output[2]=count, output[3]=class_ids
-    scores = common.output_tensor(interpreter, 0)[0]
-    boxes = common.output_tensor(interpreter, 1)[0]
-    count = min(int(common.output_tensor(interpreter, 2)[0]), len(scores))
-    class_ids = common.output_tensor(interpreter, 3)[0]
+    out = interpreter.get_output_details()
+    # EfficientDet layout: [scores, boxes, count, class_ids]
+    scores_raw  = interpreter.tensor(out[0]['index'])()[0]
+    boxes_raw   = interpreter.tensor(out[1]['index'])()[0]
+    count_raw   = interpreter.tensor(out[2]['index'])()[0]
+    class_raw   = interpreter.tensor(out[3]['index'])()[0]
 
+    # Dequantize scores and class_ids using their quantization params
+    s_scale, s_zp = out[0]['quantization']
+    c_scale, c_zp = out[3]['quantization']
+
+    count = min(int(float(count_raw[0]) * out[2]['quantization'][0]), len(scores_raw))
     width, height = common.input_size(interpreter)
+
+    # Boxes: dequantize with box tensor params
+    b_scale, b_zp = out[1]['quantization']
 
     results = []
     for i in range(count):
-        if scores[i] < threshold:
+        score = float(scores_raw[i] - s_zp) * s_scale
+        if score < threshold:
             continue
-        ymin, xmin, ymax, xmax = boxes[i]
-        from pycoral.adapters.detect import BBox, Object
+        class_id = round((float(class_raw[i]) - c_zp) * c_scale)
+        raw_box = boxes_raw[i]
+        ymin = (float(raw_box[0]) - b_zp) * b_scale
+        xmin = (float(raw_box[1]) - b_zp) * b_scale
+        ymax = (float(raw_box[2]) - b_zp) * b_scale
+        xmax = (float(raw_box[3]) - b_zp) * b_scale
         results.append(Object(
-            id=int(class_ids[i]),
-            score=float(scores[i]),
+            id=class_id,
+            score=score,
             bbox=BBox(
                 xmin=xmin * width, ymin=ymin * height,
                 xmax=xmax * width, ymax=ymax * height,
@@ -203,7 +220,8 @@ def main():
         print("ERROR: Could not open camera (index 0).", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Running detection — model={args.model}, threshold={threshold:.0%} — press Ctrl+C to stop.\n")
+    print(f"Running detection — model={args.model}, threshold={threshold:.0%} — press Ctrl+C to stop.")
+    print("\n" * 8, end="")  # reserve space for the detection display block
     try:
         consecutive_failures = 0
         while True:
@@ -224,14 +242,18 @@ def main():
             else:
                 top = coral_detect.get_objects(interpreter, threshold)
 
+            # Clear 8 lines (max 7 detections + header) then reprint
+            print("\033[8A\033[J" if top or True else "", end="")
             if top:
-                line = "  ".join(
-                    f"{labels[d.id] if d.id < len(labels) else d.id} {d.score:.0%}"
-                    for d in top
-                )
+                for d in top:
+                    name = labels[d.id] if 0 <= d.id < len(labels) else f"class_{d.id}"
+                    bar = "█" * int(d.score * 20)
+                    print(f"  {name:<22} {d.score:5.1%}  {bar}")
             else:
-                line = "(no detections)"
-            print(f"\r{line:<60}", end="", flush=True)
+                print("  (no detections)")
+            # Pad to fixed height so the clear-up always works
+            for _ in range(7 - len(top)):
+                print()
 
             if args.display:
                 annotated = draw_detections(frame, top, labels, input_size=(input_width, input_height))
