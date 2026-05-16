@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  PYTHON: ../.venv-training/bin/python
+  TRAIN_PYTHON: ../.venv-training/bin/python
 
 tasks:
   setup:
@@ -40,22 +40,22 @@ tasks:
   download:
     desc: Download PV thermal datasets from Kaggle and Zenodo (~1.5 GB, requires ~/.kaggle/kaggle.json)
     cmds:
-      - "{{.PYTHON}} scripts/download_data.py --output data/raw"
+      - "{{.TRAIN_PYTHON}} scripts/download_data.py --output data/raw"
 
   preprocess:
     desc: Normalize IR images, unify annotations, deduplicate, split 80/10/10
     cmds:
-      - "{{.PYTHON}} scripts/preprocess.py --raw data/raw --output data/processed"
+      - "{{.TRAIN_PYTHON}} scripts/preprocess.py --raw data/raw --output data/processed"
 
   train:
     desc: Fine-tune EfficientDet-Lite0 on PV thermal dataset (50 epochs, Metal GPU)
     cmds:
-      - "{{.PYTHON}} scripts/train.py --data data/processed --output models"
+      - "{{.TRAIN_PYTHON}} scripts/train.py --data data/processed --output models"
 
   export:
     desc: Compile quantized TFLite model for EdgeTPU and verify compilation quality
     cmds:
-      - "{{.PYTHON}} scripts/export.py --quant models/pv_detector_quant.tflite --output models"
+      - "{{.TRAIN_PYTHON}} scripts/export.py --quant models/pv_detector_quant.tflite --output models"
 
   deploy:
     desc: Copy trained PV model into models/ for use with task detect-pv
@@ -76,4 +76,4 @@ tasks:
   test:
     desc: Run training pipeline unit tests (no GPU or data required)
     cmds:
-      - "{{.PYTHON}} -m pytest tests/ -v"
+      - "{{.TRAIN_PYTHON}} -m pytest tests/ -v"
